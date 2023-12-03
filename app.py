@@ -38,16 +38,20 @@ with data.open(email_list) as fp:
 total = len(subs_df)
 yearly = len(subs_df[subs_df["plan"] == "yearly"])
 comp = len(subs_df[subs_df["plan"] == "comp"])
+start_date: datetime.datetime = dateparser.parse(subs_df['created_at'].min())
+end_date:datetime.datetime = dateparser.parse(subs_df['created_at'].max())
+weeks = (end_date - start_date).days / 7
+avg = len(subs_df) / weeks
 
 st.info(
-    f"You have **{len(subs_df)}** active subscribers, including **{yearly} paid** and **{comp} active comps**.",
+    f"You have **{len(subs_df)}** active subscribers, including **{yearly} paid** and **{comp} active comps**, averaging **{avg:.1f}** new subscribers per week.",
     icon="🧑‍🤝‍🧑",
 )
 
 subscribers = subs_df.groupby(["created_at"]).count().reset_index()
 subscribers["total"] = subscribers["email"].cumsum()
 
-left, right = st.columns([3, 1])
+left, mid, right = st.columns([3, 2, 1.5])
 
 with left:
     st.altair_chart(
@@ -56,6 +60,17 @@ with left:
         .encode(
             x=alt.X("created_at:T", title="Subscription date"),
             y=alt.Y("total", title="Total subscribers"),
+        ),
+        use_container_width=True,
+    )
+
+with mid:
+    st.altair_chart(
+        alt.Chart(subs_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("week(created_at):T", title="Week"),
+            y=alt.Y("count(email)", title="Subscribers per week"),
         ),
         use_container_width=True,
     )
