@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import altair as alt
 from zipfile import ZipFile
+from bs4 import BeautifulSoup
 
 
 st.set_page_config("Stacklyzer", "📚", "wide")
@@ -131,13 +132,40 @@ with right:
         use_container_width=True,
     )
 
+with st.expander("Raw posts data"):
+    st.dataframe(posts_df)
+
 st.write("#### At what time of day are you posting the most?")
 
-st.altair_chart(alt.Chart(published).mark_rect().encode(
-    x=alt.X("hours(email_sent_at):T", title="Hour when email is sent"),
-    y=alt.Y("yearmonth(email_sent_at):T", title="Month when email is sent"),
+weekday_hour = []
+weekdays = "Sun Mon Tue Wed "
+for item in posts_df['email_sent_at']:
+    if isinstance(item, str):
+        date = dateparser.parse(item)
+        weekday_hour.append(dict(day=date.weekday(), hour=date.hour))
+
+
+st.altair_chart(alt.Chart(pd.DataFrame(weekday_hour)).mark_rect().encode(
+    x=alt.X("hour:N", title="Hour when email is sent (UTC)"),
+    y=alt.Y("day:O", title="Day of the week when email is sent"),
     color=alt.Color("count()", title='Total emails sent'),
 ), use_container_width=True)
 
-with st.expander("Raw posts data"):
-    st.dataframe(posts_df)
+
+progress = st.progress(0, "Parsing posts...")
+html_files = [f for f in data.filelist if f.orig_filename.endswith(".html")]
+
+word_count = []
+
+for i, file in enumerate(html_files):
+    progress.progress((i+1) / len(html_files), f"Parsing posts ({i+1}/{len(html_files)})")
+
+    with data.open(file) as fp:
+        soup = BeautifulSoup(fp.read(), "html")
+        words = len(soup.get_text(" ", strip=True).split())
+
+        if words > 0:
+            word_count.append(dict(filename=file.orig_filename, words=words))
+
+df = pd.DataFrame(word_count)
+st.write(df)
