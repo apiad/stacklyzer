@@ -131,5 +131,13 @@ with right:
         use_container_width=True,
     )
 
+st.write("#### At what time of day are you posting the most?")
+
+st.altair_chart(alt.Chart(published).mark_rect().encode(
+    x=alt.X("hours(email_sent_at):T", title="Hour when email is sent"),
+    y=alt.Y("yearmonth(email_sent_at):T", title="Month when email is sent"),
+    color=alt.Color("count()", title='Total emails sent'),
+), use_container_width=True)
+
 with st.expander("Raw posts data"):
     st.dataframe(posts_df)
