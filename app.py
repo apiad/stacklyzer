@@ -14,12 +14,11 @@ st.header("Stacklyzer - Simple stats for your Substack!")
 st.markdown(
     """This app will help you understand your Substack publication a bit better.
 To begin, go to your Settings, navigate to the Exports section, and create a new data export.
-Once that is ready, download it, and upload it in the following file input.
+Once that is ready, download it, and upload it in the sidebar file input.
 We'll take care of the rest."""
 )
 
-data_fp = st.file_uploader("Upload your Substack data dump here.", type="zip")
-st.header("", divider="rainbow")
+data_fp = st.sidebar.file_uploader("Upload your Substack data dump here.", type="zip")
 
 if not data_fp:
     st.warning("Upload your data to continue.", icon="🔥")
@@ -27,9 +26,30 @@ if not data_fp:
 
 data = ZipFile(data_fp)
 files = data.filelist
+html_files = [f for f in data.filelist if f.orig_filename.endswith(".html")]
 
 
-st.subheader("🧑‍🤝‍🧑 Subscribers", divider="blue")
+@st.cache_data
+def parse_texts(filename):
+    progress = st.progress(0, "Parsing posts...")
+
+    texts = {}
+
+    for i, file in enumerate(html_files):
+        progress.progress(
+            (i + 1) / len(html_files), f"Parsing posts ({i+1}/{len(html_files)})"
+        )
+
+        with data.open(file) as fp:
+            soup = BeautifulSoup(fp.read(), "html")
+            texts[file] = soup.get_text()
+
+    return texts
+
+
+texts = parse_texts(data.filename)
+
+st.subheader("🧑‍🤝‍🧑 Subscribers", divider="red")
 
 email_list = [f for f in files if f.orig_filename.startswith("email_list")][0]
 
@@ -39,10 +59,13 @@ with data.open(email_list) as fp:
 total = len(subs_df)
 yearly = len(subs_df[subs_df["plan"] == "yearly"])
 comp = len(subs_df[subs_df["plan"] == "comp"])
-start_date: datetime.datetime = dateparser.parse(subs_df['created_at'].min())
-end_date:datetime.datetime = dateparser.parse(subs_df['created_at'].max())
+start_date: datetime.datetime = dateparser.parse(subs_df["created_at"].min())
+end_date: datetime.datetime = dateparser.parse(subs_df["created_at"].max())
+three_month = end_date - datetime.timedelta(days=90)
 weeks = (end_date - start_date).days / 7
 avg = len(subs_df) / weeks
+
+subs90 = len(subs_df[subs_df["created_at"] >= str(three_month)]) / 90
 
 st.info(
     f"You have **{len(subs_df)}** active subscribers, including **{yearly} paid** and **{comp} active comps**, averaging **{avg:.1f}** new subscribers per week.",
@@ -91,14 +114,16 @@ st.subheader("📧 Posts", divider="blue")
 with data.open("posts.csv") as fp:
     posts_df = pd.read_csv(fp)
 
-published = posts_df[posts_df['email_sent_at'].notnull()]
-start_date: datetime.datetime = dateparser.parse(published['email_sent_at'].min())
-end_date:datetime.datetime = dateparser.parse(published['email_sent_at'].max())
+published = posts_df[posts_df["email_sent_at"].notnull()]
+start_date: datetime.datetime = dateparser.parse(published["email_sent_at"].min())
+end_date: datetime.datetime = dateparser.parse(published["email_sent_at"].max())
 weeks = (end_date - start_date).days / 7
 avg = len(published) / weeks
 newsletters = len(published[published["type"] == "newsletter"])
 
-st.info(f"💌 So far you've sent **{len(published)}** emails, averaging **{avg:.1f} posts per week**. Of these, **{newsletters}** are original newsletter posts.")
+st.info(
+    f"💌 So far you've sent **{len(published)}** emails, averaging **{avg:.1f} posts per week**. Of these, **{newsletters}** are original newsletter posts."
+)
 
 left, mid, right = st.columns([3, 2, 1.5])
 
@@ -135,37 +160,71 @@ with right:
 with st.expander("Raw posts data"):
     st.dataframe(posts_df)
 
-st.write("#### At what time of day are you posting the most?")
+left, right = st.columns([2,1])
 
-weekday_hour = []
-weekdays = "Sun Mon Tue Wed "
-for item in posts_df['email_sent_at']:
-    if isinstance(item, str):
-        date = dateparser.parse(item)
-        weekday_hour.append(dict(day=date.weekday(), hour=date.hour))
+with left:
+    st.write("#### When are you posting the most?")
 
+    weekday_hour = []
+    weekdays = "Mon Tue Wed Thu Fri Sat Sun".split()
+    for item in posts_df["email_sent_at"]:
+        if isinstance(item, str):
+            date = dateparser.parse(item)
+            weekday_hour.append(dict(day=weekdays[date.weekday()], hour=date.hour))
 
-st.altair_chart(alt.Chart(pd.DataFrame(weekday_hour)).mark_rect().encode(
-    x=alt.X("hour:N", title="Hour when email is sent (UTC)"),
-    y=alt.Y("day:O", title="Day of the week when email is sent"),
-    color=alt.Color("count()", title='Total emails sent'),
-), use_container_width=True)
+    st.altair_chart(
+        alt.Chart(pd.DataFrame(weekday_hour))
+        .mark_rect()
+        .encode(
+            x=alt.X("hour:N", title="Hour when email is sent (UTC)"),
+            y=alt.Y("day:O", title="Day of the week when email is sent", sort=weekdays),
+            color=alt.Color("count()", title="Total emails sent"),
+        )
+        .properties(height=300),
+        use_container_width=True,
+    )
 
-
-progress = st.progress(0, "Parsing posts...")
-html_files = [f for f in data.filelist if f.orig_filename.endswith(".html")]
 
 word_count = []
 
-for i, file in enumerate(html_files):
-    progress.progress((i+1) / len(html_files), f"Parsing posts ({i+1}/{len(html_files)})")
+for file, text in texts.items():
+    words = len(text.split())
+    if words > 0:
+        word_count.append(dict(filename=file.orig_filename, words=words))
 
-    with data.open(file) as fp:
-        soup = BeautifulSoup(fp.read(), "html")
-        words = len(soup.get_text(" ", strip=True).split())
+with right:
+    st.write("### How long are your posts?")
 
-        if words > 0:
-            word_count.append(dict(filename=file.orig_filename, words=words))
+    df = pd.DataFrame(word_count)
+    st.altair_chart(
+        alt.Chart(df)
+        .mark_bar()
+        .encode(x=alt.X("words", bin=True), y="count()")
+        .properties(height=300),
+        use_container_width=True,
+    )
 
-df = pd.DataFrame(word_count)
-st.write(df)
+
+st.subheader("💲Monetization", divider="green")
+
+
+
+st.sidebar.markdown("### Monetization")
+st.sidebar.info("The following info cannot be taken from Substack, so please provide it yourself.")
+
+gar = st.sidebar.number_input("Gross anualized revuene (GAR)", min_value=1.0, format="%.2f", step=10.0)
+target = st.sidebar.number_input("Target GAR", min_value=gar, format="%.2f", step=10.0)
+
+subdollar = len(subs_df) / gar
+targetsub = round(target * subdollar)
+needsubs = targetsub - len(subs_df)
+needdays = needsubs / subs90
+timedelta = datetime.timedelta(days=needdays)
+date = datetime.datetime.today() + timedelta
+
+st.write(f"""
+- Your current subscriber to dollar ratio is **{subdollar:.2f}** subs/$.
+- To reach your target GAR of **${target}** you'll need around **{targetsub}** free subscribers.
+- Your 90-day average growth rate is **{subs90:.1f} subscribers/day**.
+- At this rate, you'll hit your target GAR on **{timedelta.days} days**, or {date.date()}.
+""")

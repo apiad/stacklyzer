@@ -2,6 +2,8 @@
 
 > Simple Substack analytics from exported data.
 
+![](screenshot.png)
+
 This is a simple [streamlit](https://streamlit.io) app that analyzes your Substack data (Settings -> Export) and provides several analyses and suggestions.
 
 You can run it online for free [here](https://stacklyzer.streamlit.app).
