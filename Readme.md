@@ -12,4 +12,4 @@ To run it locally, clone the project, pip install the `requirements.txt` file an
 
 ## Contribution
 
-Like everything I do, this is MIT :)
+Like everything I do, [this is MIT](LICENSE) :)
