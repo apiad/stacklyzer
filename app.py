@@ -269,14 +269,47 @@ st.info(
     icon="💌",
 )
 
-chart_1 = alt.Chart(open_rates).mark_line().encode(x=alt.X("when:O", axis=None), y="rate").properties(height=150, width=700)
-chart_2 = chart_1.mark_bar().encode(y="delivers", color="type", tooltip=["title", "delivers", "opens", "rate", "type"])
 
-st.altair_chart(chart_1 & chart_2, use_container_width=True)
+@st.cache_data
+def compute_subscriber_behavior(filename):
+    deliver_totals = delivers.groupby('email').agg(delivers=("post_id", "count"))
+    open_totals = opens.groupby('email').agg(opens=('post_id', 'count'))
+    totals = deliver_totals.join(open_totals).join(subs_df.set_index('email'), how='outer').reset_index()
+    totals['active'] = totals['email'].isin(subs_df['email'])
+    totals.loc[totals['opens'].isnull(), 'opens'] = 0
+    totals.loc[totals['delivers'].isnull(), 'delivers'] = 0
+
+    return totals.reset_index()
+
+
+subs_behavior = compute_subscriber_behavior(data.filename)
+
+total_subs_ever = len(subs_behavior[subs_behavior['delivers'] > 0])
+total_subs_open = len(subs_behavior[subs_behavior['opens'] > 0])
+current_subs_open = len(subs_behavior[(subs_behavior['opens'] > 0) & (subs_behavior['active'])])
+current_subs_zero = len(subs_behavior[(subs_behavior['opens'] == 0) & (subs_behavior['active'])])
+current_subs_zero_deliver = len(subs_behavior[(subs_behavior['delivers'] == 0) & (subs_behavior['active'])])
+
+cols = st.columns(5)
+cols[0].metric("Unique emails ever sent to", total_subs_ever)
+cols[1].metric("Unique emails who read something", total_subs_open)
+cols[2].metric("Current subs who read something", current_subs_open)
+cols[3].metric("Current subs with zero delivers", current_subs_zero_deliver)
+cols[4].metric("Current subs with zero opens", current_subs_zero)
+
+chart_1 = alt.Chart(open_rates).mark_line().encode(x=alt.X("when:O", axis=None), y="rate:Q").properties(height=150)
+chart_2 = chart_1.mark_bar().encode(y="delivers", color=alt.Color("type", legend=None), tooltip=["title", "delivers", "opens", "rate", "type"])
+
+st.altair_chart(chart_1, use_container_width=True)
+st.altair_chart(chart_2, use_container_width=True)
 
 
 with st.expander("Raw open rates"):
+    st.write("#### Article open rates")
     st.dataframe(open_rates)
+
+    st.write("#### Susbcriber open rates")
+    st.dataframe(subs_behavior)
 
 
 left, right = st.columns([2, 1])
