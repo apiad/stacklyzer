@@ -1,4 +1,5 @@
 import streamlit as st
+import random
 import dateparser
 import datetime
 import pandas as pd
@@ -47,7 +48,51 @@ def parse_texts(filename):
     return texts
 
 
+deliver_files = [f for f in data.filelist if f.filename.endswith("delivers.csv")]
+
+
+@st.cache_data
+def parse_delivers(filename):
+    progress = st.progress(0, "Parsing delivers...")
+
+    dfs = []
+
+    for i, file in enumerate(deliver_files):
+        progress.progress(
+            (i + 1) / len(deliver_files),
+            f"Parsing delivers ({i+1}/{len(deliver_files)})",
+        )
+
+        with data.open(file) as fp:
+            dfs.append(pd.read_csv(fp))
+
+    return pd.concat(dfs, ignore_index=True)
+
+
+open_files = [f for f in data.filelist if f.filename.endswith("opens.csv")]
+
+
+@st.cache_data
+def parse_opens(filename):
+    progress = st.progress(0, "Parsing opens...")
+
+    dfs = []
+
+    for i, file in enumerate(open_files):
+        progress.progress(
+            (i + 1) / len(open_files), f"Parsing opens ({i+1}/{len(open_files)})"
+        )
+
+        with data.open(file) as fp:
+            dfs.append(pd.read_csv(fp))
+
+    return pd.concat(dfs, ignore_index=True)
+
+
 texts = parse_texts(data.filename)
+delivers = parse_delivers(data.filename)
+opens = parse_opens(data.filename)
+
 
 st.subheader("⭐ Quick info", divider="orange")
 
@@ -126,6 +171,8 @@ st.subheader("📧 Posts", divider="blue")
 with data.open("posts.csv") as fp:
     posts_df = pd.read_csv(fp)
 
+posts_df['raw_id'] = pd.to_numeric(posts_df['post_id'].str.split("." , n=1, expand=True)[0])
+
 published = posts_df[posts_df["email_sent_at"].notnull()]
 start_date: datetime.datetime = dateparser.parse(published["email_sent_at"].min())
 end_date: datetime.datetime = dateparser.parse(published["email_sent_at"].max())
@@ -173,8 +220,58 @@ with right:
         use_container_width=True,
     )
 
+
 with st.expander("Raw posts data"):
+    st.write("#### Posts")
     st.dataframe(posts_df)
+
+    st.write("#### Delivers")
+    st.dataframe(delivers)
+
+    st.write("#### Opens")
+    st.dataframe(opens)
+
+
+st.write("#### How much are your subscribers reading?")
+
+
+@st.cache_data
+def compute_unique_opens(filename):
+    return opens.groupby(["post_id", "email"]).agg(timestamp=("timestamp", "min"))
+
+
+unique_opens = compute_unique_opens(data.filename)
+total_opens = len(unique_opens)
+open_rate = total_opens / len(delivers)
+
+
+@st.cache_data
+def compute_open_rates(filename):
+    deliver_totals = delivers.groupby('post_id').agg(delivers=("email", "count"), when=("timestamp", "min"))
+    open_totals = opens.groupby(['post_id', 'email']).count().reset_index().groupby('post_id').agg(opens=('email', 'count'))
+    totals = deliver_totals.join(open_totals).join(posts_df[["raw_id", "title", "type"]].set_index('raw_id'))
+    totals['rate'] = totals['opens'] / totals['delivers']
+
+    return totals.reset_index()
+
+
+open_rates = compute_open_rates(data.filename)
+
+
+st.info(
+    f"You have sent a total of {len(delivers)} emails and received a total of {total_opens} unique opens ({open_rate*100:.2f}% open rate).",
+    icon="💌",
+)
+
+chart_1 = alt.Chart(open_rates).mark_line().encode(x=alt.X("when:O", axis=None), y="rate").properties(height=150, width=700)
+chart_2 = chart_1.mark_bar().encode(y="delivers", color="type", tooltip=["title", "delivers", "opens", "rate", "type"])
+
+st.altair_chart(chart_1 & chart_2, use_container_width=True)
+
+
+with st.expander("Raw open rates"):
+    st.dataframe(open_rates)
+
 
 left, right = st.columns([2, 1])
 
@@ -200,6 +297,45 @@ with left:
         use_container_width=True,
     )
 
+    st.write("#### When are your subscribers reading?")
+
+
+    opens_sample_size = st.sidebar.number_input("Open sample size", min_value=1000, value=min(len(opens), 10000), step=1000)
+
+
+    @st.cache_data
+    def compute_open_hours(filename, size):
+        weekday_hour = []
+        progress = st.progress(0, "Processing...")
+        weekdays = "Mon Tue Wed Thu Fri Sat Sun".split()
+
+        samples = list(opens["timestamp"])
+
+        if len(samples) > size:
+            samples = random.sample(samples, size)
+
+        for i, item in enumerate(samples):
+            progress.progress((i+1)/len(samples), f"Processing {i+1}/{len(samples)}")
+
+            if isinstance(item, str):                 # 2023-01-15T11:29:51.225Z
+                date = datetime.datetime.strptime(item[:-5], r"%Y-%m-%dT%H:%M:%S")
+                weekday_hour.append(dict(day=weekdays[date.weekday()], hour=date.hour))
+
+        return pd.DataFrame(weekday_hour)
+
+    weekday_hour = compute_open_hours(data.filename, opens_sample_size)
+
+    st.altair_chart(
+        alt.Chart(weekday_hour)
+        .mark_rect()
+        .encode(
+            x=alt.X("hour:N", title="Hour when email is opened (UTC)"),
+            y=alt.Y("day:O", title="Day of the week when email is opened", sort=weekdays),
+            color=alt.Color("count()", title="Total opens"),
+        )
+        .properties(height=300),
+        use_container_width=True,
+    )
 
 word_count = []
 
@@ -232,28 +368,34 @@ st.sidebar.info(
 )
 
 gar = st.sidebar.number_input(
-    "Gross anualized revuene (GAR)", min_value=1.0, format="%.2f", step=10.0
+    "Gross anualized revuene (GAR)", min_value=0.0, format="%.2f", step=10.0
 )
 target = st.sidebar.number_input(
     "Target GAR", min_value=gar, value=gar, format="%.2f", step=10.0
 )
 
-metric_gar.metric("💲 Current GAR", gar)
+if gar <= 0:
+    st.warning(
+        "This section requires you to define the Gross Anualized Revenue values in the sidebar.",
+        icon="⚠️",
+    )
+else:
+    metric_gar.metric("💲 Current GAR", gar)
 
-subdollar = len(subs_df) / gar
-targetsub = round(target * subdollar)
-needsubs = targetsub - len(subs_df)
-needdays = needsubs / subs90
-timedelta = datetime.timedelta(days=needdays)
-date = datetime.datetime.today() + timedelta
+    subdollar = len(subs_df) / gar
+    targetsub = round(target * subdollar)
+    needsubs = targetsub - len(subs_df)
+    needdays = needsubs / subs90
+    timedelta = datetime.timedelta(days=needdays)
+    date = datetime.datetime.today() + timedelta
 
-target_gar.metric("📆 Days to target GAR", timedelta.days)
+    target_gar.metric("📆 Days to target GAR", timedelta.days)
 
-st.write(
-    f"""
-- Your current subscriber to dollar ratio is **{subdollar:.2f}** subs/$.
-- To reach your target GAR of **${target}** you'll need around **{targetsub}** free subscribers.
-- Your 90-day average growth rate is **{subs90:.1f} subscribers/day**.
-- At this rate, you'll hit your target GAR on **{timedelta.days} days**, or {date.date()}.
-"""
-)
+    st.write(
+        f"""
+    - Your current subscriber to dollar ratio is **{subdollar:.2f}** subs/$.
+    - To reach your target GAR of **${target}** you'll need around **{targetsub}** free subscribers.
+    - Your 90-day average growth rate is **{subs90:.1f} subscribers/day**.
+    - At this rate, you'll hit your target GAR on **{timedelta.days} days**, or {date.date()}.
+    """
+    )
