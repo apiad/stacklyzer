@@ -32,7 +32,7 @@ html_files = [f for f in data.filelist if f.orig_filename.endswith(".html")]
 
 @st.cache_data
 def parse_texts(filename):
-    progress = st.progress(0, "Parsing posts...")
+    progress = st.sidebar.progress(0, "Parsing posts...")
 
     texts = {}
 
@@ -45,6 +45,8 @@ def parse_texts(filename):
             soup = BeautifulSoup(fp.read(), "html")
             texts[file] = soup.get_text()
 
+    progress.empty()
+
     return texts
 
 
@@ -53,7 +55,7 @@ deliver_files = [f for f in data.filelist if f.filename.endswith("delivers.csv")
 
 @st.cache_data
 def parse_delivers(filename):
-    progress = st.progress(0, "Parsing delivers...")
+    progress = st.sidebar.progress(0, "Parsing delivers...")
 
     dfs = []
 
@@ -66,6 +68,8 @@ def parse_delivers(filename):
         with data.open(file) as fp:
             dfs.append(pd.read_csv(fp))
 
+    progress.empty()
+
     return pd.concat(dfs, ignore_index=True)
 
 
@@ -74,7 +78,7 @@ open_files = [f for f in data.filelist if f.filename.endswith("opens.csv")]
 
 @st.cache_data
 def parse_opens(filename):
-    progress = st.progress(0, "Parsing opens...")
+    progress = st.sidebar.progress(0, "Parsing opens...")
 
     dfs = []
 
@@ -85,6 +89,8 @@ def parse_opens(filename):
 
         with data.open(file) as fp:
             dfs.append(pd.read_csv(fp))
+
+    progress.empty()
 
     return pd.concat(dfs, ignore_index=True)
 
@@ -291,7 +297,7 @@ with left:
         .encode(
             x=alt.X("hour:N", title="Hour when email is sent (UTC)"),
             y=alt.Y("day:O", title="Day of the week when email is sent", sort=weekdays),
-            color=alt.Color("count()", title="Total emails sent"),
+            color=alt.Color("count()", title="Total"),
         )
         .properties(height=300),
         use_container_width=True,
@@ -300,13 +306,13 @@ with left:
     st.write("#### When are your subscribers reading?")
 
 
-    opens_sample_size = st.sidebar.number_input("Open sample size", min_value=1000, value=min(len(opens), 10000), step=1000)
+    opens_sample_size = st.sidebar.number_input("Open sample size", min_value=1000, value=min(len(opens), 50000), step=1000)
 
 
     @st.cache_data
     def compute_open_hours(filename, size):
         weekday_hour = []
-        progress = st.progress(0, "Processing...")
+        progress = st.sidebar.progress(0, "Processing...")
         weekdays = "Mon Tue Wed Thu Fri Sat Sun".split()
 
         samples = list(opens["timestamp"])
@@ -315,11 +321,14 @@ with left:
             samples = random.sample(samples, size)
 
         for i, item in enumerate(samples):
-            progress.progress((i+1)/len(samples), f"Processing {i+1}/{len(samples)}")
+            if i % 1000 == 0:
+                progress.progress((i+1)/len(samples), f"Processing {i+1}/{len(samples)}")
 
             if isinstance(item, str):                 # 2023-01-15T11:29:51.225Z
                 date = datetime.datetime.strptime(item[:-5], r"%Y-%m-%dT%H:%M:%S")
                 weekday_hour.append(dict(day=weekdays[date.weekday()], hour=date.hour))
+
+        progress.empty()
 
         return pd.DataFrame(weekday_hour)
 
@@ -329,9 +338,9 @@ with left:
         alt.Chart(weekday_hour)
         .mark_rect()
         .encode(
-            x=alt.X("hour:N", title="Hour when email is opened (UTC)"),
+            x=alt.X("hour:O", title="Hour when email is opened (UTC)"),
             y=alt.Y("day:O", title="Day of the week when email is opened", sort=weekdays),
-            color=alt.Color("count()", title="Total opens"),
+            color=alt.Color("count()", title="Total"),
         )
         .properties(height=300),
         use_container_width=True,
