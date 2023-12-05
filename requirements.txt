@@ -1,3 +1,4 @@
 streamlit
 pandas
 dateparser
+beautifulsoup4

@@ -209,7 +209,7 @@ for file, text in texts.items():
         word_count.append(dict(filename=file.orig_filename, words=words))
 
 with right:
-    st.write("### How long are your posts?")
+    st.write("#### How long are your posts?")
 
     df = pd.DataFrame(word_count)
     st.altair_chart(
