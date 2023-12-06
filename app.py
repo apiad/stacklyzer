@@ -495,6 +495,7 @@ with left:
         .mark_bar()
         .encode(
             x=alt.X("words", bin=True, title="Post length (in words)"),
+            color=alt.Color("type", title="Post type"),
             y=alt.Y("count()", title="Number of posts"),
         )
         .properties(height=300),
