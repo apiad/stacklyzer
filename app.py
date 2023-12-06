@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit.components.v1 import iframe
 import random
 import dateparser
 import datetime
@@ -13,10 +14,20 @@ st.set_page_config("Stacklyzer", "📚", "wide")
 st.header("Stacklyzer - Simple stats for your Substack!")
 
 st.markdown(
-    """This app will help you understand your Substack publication a bit better.
+    """
+This app will help you understand your Substack publication a bit better.
 To begin, go to your Settings, navigate to the Exports section, and create a new data export.
 Once that is ready, download it, and upload it in the sidebar file input.
-We'll take care of the rest."""
+We'll take care of the rest.
+"""
+)
+
+st.info(
+    """
+Stacklyzer is a 100%% free and [open source software](https://github.com/apiad/stacklyzer).
+If you want to contribute with its development, you can either [consider making a donation](https://tppay.me/lpsx71j6), or [subscribe to my free blog](https://blog.apiad.net/subscribe).
+""",
+    icon="💖",
 )
 
 data_fp = st.sidebar.file_uploader("Upload your Substack data dump here.", type="zip")
@@ -100,7 +111,9 @@ delivers = parse_delivers(data.filename)
 opens = parse_opens(data.filename)
 
 
-st.subheader("⭐ Quick info", divider="orange")
+## QUICKINFO
+
+st.subheader("⭐ Quick info", divider="rainbow")
 
 cols = st.columns(5)
 metric_sub = cols[0].metric("🧑‍🤝‍🧑 Total subscribers", 0)
@@ -109,7 +122,10 @@ metric_emails = cols[2].metric("📧 Emails sent", 0)
 metric_gar = cols[3].metric("💲 Current GAR", 0)
 target_gar = cols[4].metric("📆 Days to target GAR", 0)
 
-st.subheader("🧑‍🤝‍🧑 Subscribers", divider="red")
+
+## SUBS
+
+st.subheader("🧑‍🤝‍🧑 Subscribers", divider="orange")
 
 email_list = [f for f in files if f.orig_filename.startswith("email_list")][0]
 
@@ -118,6 +134,8 @@ with data.open(email_list) as fp:
 
 total = len(subs_df)
 yearly = len(subs_df[subs_df["plan"] == "yearly"])
+monthly = len(subs_df[subs_df["plan"] == "monthly"])
+paid = yearly + monthly
 comp = len(subs_df[subs_df["plan"] == "comp"])
 start_date: datetime.datetime = dateparser.parse(subs_df["created_at"].min())
 end_date: datetime.datetime = dateparser.parse(subs_df["created_at"].max())
@@ -128,10 +146,10 @@ avg = len(subs_df) / weeks
 subs90 = len(subs_df[subs_df["created_at"] >= str(three_month)]) / 90
 
 metric_sub.metric("🧑‍🤝‍🧑 Total subscribers", len(subs_df), delta=round(avg, 1))
-metric_paid.metric("💰 Paid subscribers", yearly)
+metric_paid.metric("💰 Paid subscribers", paid)
 
 st.info(
-    f"You have **{len(subs_df)}** active subscribers, including **{yearly} paid** and **{comp} active comps**, averaging **{avg:.1f}** new subscribers per week.",
+    f"You have **{len(subs_df)}** active subscribers, including **{paid} paid** and **{comp} active comps**, averaging **{avg:.1f}** new subscribers per week.",
     icon="🧑‍🤝‍🧑",
 )
 
@@ -172,12 +190,16 @@ with st.expander("Raw subscriber data"):
     st.dataframe(subs_df, use_container_width=True)
 
 
-st.subheader("📧 Posts", divider="blue")
+## EMAILS
+
+st.subheader("📧 Emails", divider="blue")
 
 with data.open("posts.csv") as fp:
     posts_df = pd.read_csv(fp)
 
-posts_df['raw_id'] = pd.to_numeric(posts_df['post_id'].str.split("." , n=1, expand=True)[0])
+posts_df["raw_id"] = pd.to_numeric(
+    posts_df["post_id"].str.split(".", n=1, expand=True)[0]
+)
 
 published = posts_df[posts_df["email_sent_at"].notnull()]
 start_date: datetime.datetime = dateparser.parse(published["email_sent_at"].min())
@@ -253,10 +275,20 @@ open_rate = total_opens / len(delivers)
 
 @st.cache_data
 def compute_open_rates(filename):
-    deliver_totals = delivers.groupby('post_id').agg(delivers=("email", "count"), when=("timestamp", "min"))
-    open_totals = opens.groupby(['post_id', 'email']).count().reset_index().groupby('post_id').agg(opens=('email', 'count'))
-    totals = deliver_totals.join(open_totals).join(posts_df[["raw_id", "title", "type"]].set_index('raw_id'))
-    totals['rate'] = totals['opens'] / totals['delivers']
+    deliver_totals = delivers.groupby("post_id").agg(
+        delivers=("email", "count"), when=("timestamp", "min")
+    )
+    open_totals = (
+        opens.groupby(["post_id", "email"])
+        .count()
+        .reset_index()
+        .groupby("post_id")
+        .agg(opens=("email", "count"))
+    )
+    totals = deliver_totals.join(open_totals).join(
+        posts_df[["raw_id", "title", "type"]].set_index("raw_id")
+    )
+    totals["rate"] = totals["opens"] / totals["delivers"]
 
     return totals.reset_index()
 
@@ -272,23 +304,33 @@ st.info(
 
 @st.cache_data
 def compute_subscriber_behavior(filename):
-    deliver_totals = delivers.groupby('email').agg(delivers=("post_id", "count"))
-    open_totals = opens.groupby('email').agg(opens=('post_id', 'count'))
-    totals = deliver_totals.join(open_totals).join(subs_df.set_index('email'), how='outer').reset_index()
-    totals['active'] = totals['email'].isin(subs_df['email'])
-    totals.loc[totals['opens'].isnull(), 'opens'] = 0
-    totals.loc[totals['delivers'].isnull(), 'delivers'] = 0
+    deliver_totals = delivers.groupby("email").agg(delivers=("post_id", "count"))
+    open_totals = opens.groupby("email").agg(opens=("post_id", "count"))
+    totals = (
+        deliver_totals.join(open_totals)
+        .join(subs_df.set_index("email"), how="outer")
+        .reset_index()
+    )
+    totals["active"] = totals["email"].isin(subs_df["email"])
+    totals.loc[totals["opens"].isnull(), "opens"] = 0
+    totals.loc[totals["delivers"].isnull(), "delivers"] = 0
 
     return totals.reset_index()
 
 
 subs_behavior = compute_subscriber_behavior(data.filename)
 
-total_subs_ever = len(subs_behavior[subs_behavior['delivers'] > 0])
-total_subs_open = len(subs_behavior[subs_behavior['opens'] > 0])
-current_subs_open = len(subs_behavior[(subs_behavior['opens'] > 0) & (subs_behavior['active'])])
-current_subs_zero = len(subs_behavior[(subs_behavior['opens'] == 0) & (subs_behavior['active'])])
-current_subs_zero_deliver = len(subs_behavior[(subs_behavior['delivers'] == 0) & (subs_behavior['active'])])
+total_subs_ever = len(subs_behavior[subs_behavior["delivers"] > 0])
+total_subs_open = len(subs_behavior[subs_behavior["opens"] > 0])
+current_subs_open = len(
+    subs_behavior[(subs_behavior["opens"] > 0) & (subs_behavior["active"])]
+)
+current_subs_zero = len(
+    subs_behavior[(subs_behavior["opens"] == 0) & (subs_behavior["active"])]
+)
+current_subs_zero_deliver = len(
+    subs_behavior[(subs_behavior["delivers"] == 0) & (subs_behavior["active"])]
+)
 
 cols = st.columns(5)
 cols[0].metric("Unique emails ever sent to", total_subs_ever)
@@ -297,8 +339,17 @@ cols[2].metric("Current subs who read something", current_subs_open)
 cols[3].metric("Current subs with zero delivers", current_subs_zero_deliver)
 cols[4].metric("Current subs with zero opens", current_subs_zero)
 
-chart_1 = alt.Chart(open_rates).mark_line().encode(x=alt.X("when:O", axis=None), y="rate:Q").properties(height=150)
-chart_2 = chart_1.mark_bar().encode(y="delivers", color=alt.Color("type", legend=None), tooltip=["title", "delivers", "opens", "rate", "type"])
+chart_1 = (
+    alt.Chart(open_rates)
+    .mark_line()
+    .encode(x=alt.X("when:O", axis=None), y="rate:Q")
+    .properties(height=150)
+)
+chart_2 = chart_1.mark_bar().encode(
+    y="delivers",
+    color=alt.Color("type", legend=None),
+    tooltip=["title", "delivers", "opens", "rate", "type"],
+)
 
 st.altair_chart(chart_1, use_container_width=True)
 st.altair_chart(chart_2, use_container_width=True)
@@ -312,7 +363,11 @@ with st.expander("Raw open rates"):
     st.dataframe(subs_behavior)
 
 
-left, right = st.columns([2, 1])
+## SCHEDULE
+
+st.subheader("🗓️ Schedule", divider="red")
+
+left, right = st.columns(2)
 
 with left:
     st.write("#### When are you posting the most?")
@@ -336,11 +391,12 @@ with left:
         use_container_width=True,
     )
 
+with right:
     st.write("#### When are your subscribers reading?")
 
-
-    opens_sample_size = st.sidebar.number_input("Open sample size", min_value=1000, value=min(len(opens), 50000), step=1000)
-
+    opens_sample_size = st.sidebar.number_input(
+        "Open sample size", min_value=1000, value=min(len(opens), 50000), step=1000
+    )
 
     @st.cache_data
     def compute_open_hours(filename, size):
@@ -355,9 +411,11 @@ with left:
 
         for i, item in enumerate(samples):
             if i % 1000 == 0:
-                progress.progress((i+1)/len(samples), f"Processing {i+1}/{len(samples)}")
+                progress.progress(
+                    (i + 1) / len(samples), f"Processing {i+1}/{len(samples)}"
+                )
 
-            if isinstance(item, str):                 # 2023-01-15T11:29:51.225Z
+            if isinstance(item, str):  # 2023-01-15T11:29:51.225Z
                 date = datetime.datetime.strptime(item[:-5], r"%Y-%m-%dT%H:%M:%S")
                 weekday_hour.append(dict(day=weekdays[date.weekday()], hour=date.hour))
 
@@ -372,7 +430,9 @@ with left:
         .mark_rect()
         .encode(
             x=alt.X("hour:O", title="Hour when email is opened (UTC)"),
-            y=alt.Y("day:O", title="Day of the week when email is opened", sort=weekdays),
+            y=alt.Y(
+                "day:O", title="Day of the week when email is opened", sort=weekdays
+            ),
             color=alt.Color("count()", title="Total"),
         )
         .properties(height=300),
@@ -383,15 +443,55 @@ word_count = []
 
 for file, text in texts.items():
     words = len(text.split())
-    if words > 0:
-        word_count.append(dict(filename=file.orig_filename, words=words))
+    post_id = int(file.orig_filename.split("/")[1].split(".")[0])
 
-with right:
+    if words > 0:
+        word_count.append(
+            dict(filename=file.orig_filename, post_id=post_id, words=words)
+        )
+
+posts_length = (
+    pd.DataFrame(word_count)
+    .set_index("post_id")
+    .join(open_rates.set_index("post_id"), how="right")
+    .reset_index()
+)
+
+
+def compute_time(when):
+    date = datetime.datetime.strptime(when[:-5], r"%Y-%m-%dT%H:%M:%S")
+    dayofweek = date.weekday()
+    hourfraction = (date.hour * 60 + date.minute) / 1440
+    return dayofweek + hourfraction
+
+
+posts_length["time"] = posts_length["when"].apply(compute_time)
+
+
+st.altair_chart(
+    alt.Chart(posts_length)
+    .mark_circle()
+    .encode(
+        x="time",
+        y="rate",
+        color="type",
+        size="words",
+        tooltip=["title", "when", "delivers", "opens", "rate"],
+    ),
+    use_container_width=True,
+)
+
+## CONTENT
+
+st.subheader("📰 Content", divider="violet")
+
+left, right = st.columns(2)
+
+with left:
     st.write("#### How long are your posts?")
 
-    df = pd.DataFrame(word_count)
     st.altair_chart(
-        alt.Chart(df)
+        alt.Chart(posts_length)
         .mark_bar()
         .encode(
             x=alt.X("words", bin=True, title="Post length (in words)"),
@@ -401,6 +501,7 @@ with right:
         use_container_width=True,
     )
 
+## MONETIZATION
 
 st.subheader("💲Monetization", divider="green")
 
