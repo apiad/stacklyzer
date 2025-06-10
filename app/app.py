@@ -25,7 +25,7 @@ We'll take care of the rest.
 st.info(
     """
 Stacklyzer is a 100%% free and [open source software](https://github.com/apiad/stacklyzer).
-If you want to contribute with its development, you can either [consider making a donation](https://tppay.me/lpsx71j6), or [subscribe to my free blog](https://blog.apiad.net/subscribe).
+If you want to contribute with its development, you can either [consider making a donation](https://store.apiad.net/), or [subscribe to my free blog](https://blog.apiad.net/subscribe).
 """,
     icon="💖",
 )
